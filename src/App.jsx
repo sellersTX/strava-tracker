@@ -80,7 +80,7 @@ function ConnectScreen() {
         </svg>
         <h2>Connect your Strava</h2>
         <p>Link your account to see your real lifetime mileage.</p>
-        <a className="connect-btn" href="http://localhost:3001/auth/strava">
+        <a className="connect-btn" href="/api/auth/strava">
           Connect with Strava
         </a>
       </div>
@@ -192,7 +192,7 @@ export default function App() {
           {isReal ? (
             <span className="badge badge--live">● Live</span>
           ) : (
-            <a className="badge badge--connect" href="http://localhost:3001/auth/strava">
+            <a className="badge badge--connect" href="/api/auth/strava">
               Connect Strava
             </a>
           )}
@@ -263,7 +263,7 @@ export default function App() {
 
         {!isReal && (
           <div className="data-note">
-            ⚡ Sample data — <a href="http://localhost:3001/auth/strava">connect Strava</a> to see your real miles
+            ⚡ Sample data — <a href="/api/auth/strava">connect Strava</a> to see your real miles
           </div>
         )}
       </main>

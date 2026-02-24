@@ -4,11 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"vite\" \"node server.js\"",
+    "dev": "vercel dev",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview",
-    "server": "node server.js"
+    "preview": "vite preview"
   },
   "dependencies": {
     "axios": "^1.13.5",
