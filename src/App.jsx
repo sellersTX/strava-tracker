@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   AreaChart,
   Area,
@@ -12,7 +12,31 @@ import { generateFakeData } from "./data/fakeRuns";
 import "./App.css";
 
 const STRAVA_ORANGE = "#FC4C02";
-const data = generateFakeData();
+
+// Convert raw Strava runs into monthly cumulative chart data
+function processRuns(runs) {
+  const monthMap = {};
+  for (const run of runs) {
+    const month = run.date.slice(0, 7);
+    monthMap[month] = (monthMap[month] ?? 0) + run.distance_miles;
+  }
+  const months = Object.keys(monthMap).sort();
+  let cumulative = 0;
+  return months.map((month) => {
+    const monthly = Math.round(monthMap[month] * 10) / 10;
+    cumulative = Math.round((cumulative + monthly) * 10) / 10;
+    const [y, m] = month.split("-");
+    return {
+      date: month,
+      label: new Date(Number(y), Number(m) - 1, 1).toLocaleString("default", {
+        month: "short",
+        year: "2-digit",
+      }),
+      monthly,
+      cumulative,
+    };
+  });
+}
 
 function formatMiles(n) {
   return n.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -42,49 +66,117 @@ function CustomCursor({ points, height }) {
   return (
     <line
       x1={x} y1={0} x2={x} y2={height}
-      stroke={STRAVA_ORANGE}
-      strokeWidth={1.5}
-      strokeDasharray="4 3"
-      opacity={0.7}
+      stroke={STRAVA_ORANGE} strokeWidth={1.5} strokeDasharray="4 3" opacity={0.7}
     />
   );
 }
 
-export default function App() {
-  const [hovered, setHovered] = useState(null);
+function ConnectScreen() {
+  return (
+    <div className="connect-screen">
+      <div className="connect-card">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill={STRAVA_ORANGE}>
+          <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
+        </svg>
+        <h2>Connect your Strava</h2>
+        <p>Link your account to see your real lifetime mileage.</p>
+        <a className="connect-btn" href="http://localhost:3001/auth/strava">
+          Connect with Strava
+        </a>
+      </div>
+    </div>
+  );
+}
 
-  const totalMiles = data[data.length - 1].cumulative;
+function LoadingScreen() {
+  return (
+    <div className="connect-screen">
+      <div className="connect-card">
+        <div className="spinner" />
+        <p>Loading your runs…</p>
+      </div>
+    </div>
+  );
+}
+
+export default function App() {
+  const [status, setStatus] = useState("checking"); // checking | disconnected | loading | ready | error
+  const [data, setData] = useState(null);
+  const [hovered, setHovered] = useState(null);
+  const [isReal, setIsReal] = useState(false);
+
+  // Check connection & handle OAuth redirect
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const justConnected = params.get("connected") === "true";
+    const authError = params.get("error");
+
+    // Clean the URL
+    if (justConnected || authError) {
+      window.history.replaceState({}, "", "/");
+    }
+
+    if (authError) {
+      setStatus("disconnected");
+      return;
+    }
+
+    // Check if server has a valid token
+    fetch("/api/status")
+      .then((r) => r.json())
+      .then(({ connected }) => {
+        if (connected) {
+          setStatus("loading");
+          return fetch("/api/activities")
+            .then((r) => r.json())
+            .then((runs) => {
+              if (runs.error) throw new Error(runs.error);
+              setData(processRuns(runs));
+              setIsReal(true);
+              setStatus("ready");
+            });
+        } else {
+          setStatus("disconnected");
+        }
+      })
+      .catch(() => {
+        // Server not running — fall back to fake data
+        setData(generateFakeData());
+        setIsReal(false);
+        setStatus("ready");
+      });
+  }, []);
+
+  const chartData = data ?? [];
+  const totalMiles = chartData.length ? chartData[chartData.length - 1].cumulative : 0;
   const displayMiles = hovered !== null ? hovered : totalMiles;
   const isHovering = hovered !== null;
 
-  const firstYear = data[0].date.slice(0, 4);
-  const lastYear = data[data.length - 1].date.slice(0, 4);
-  const yearsRunning = Number(lastYear) - Number(firstYear) + 1;
+  const firstYear = chartData[0]?.date.slice(0, 4) ?? "";
+  const lastYear = chartData[chartData.length - 1]?.date.slice(0, 4) ?? "";
+  const yearsRunning = firstYear && lastYear ? Number(lastYear) - Number(firstYear) + 1 : 0;
 
   const avgMonthly = useMemo(() => {
-    const total = data.reduce((s, d) => s + d.monthly, 0);
-    return Math.round(total / data.length);
-  }, []);
+    if (!chartData.length) return 0;
+    return Math.round(chartData.reduce((s, d) => s + d.monthly, 0) / chartData.length);
+  }, [chartData]);
 
   const bestMonth = useMemo(() => {
-    return data.reduce((best, d) => (d.monthly > best.monthly ? d : best), data[0]);
-  }, []);
+    return chartData.reduce((best, d) => (d.monthly > (best?.monthly ?? 0) ? d : best), null);
+  }, [chartData]);
 
   const handleMouseMove = useCallback((e) => {
-    if (e?.activePayload?.length) {
-      setHovered(e.activePayload[0].payload.cumulative);
-    }
+    if (e?.activePayload?.length) setHovered(e.activePayload[0].payload.cumulative);
   }, []);
-
   const handleMouseLeave = useCallback(() => setHovered(null), []);
 
-  const tickFormatter = (val) => {
-    if (val.endsWith("-01")) return val.slice(0, 4);
-    return "";
-  };
+  const tickFormatter = (val) => (val.endsWith("-01") ? val.slice(0, 4) : "");
 
   const intPart = Math.floor(displayMiles);
   const decPart = Math.round((displayMiles % 1) * 10);
+
+  if (status === "checking" || status === "loading") return <LoadingScreen />;
+  if (status === "disconnected") return <ConnectScreen />;
 
   return (
     <div className="app">
@@ -96,6 +188,15 @@ export default function App() {
           <span>RunTracker</span>
         </div>
         <div className="header-name">Sean Sellers</div>
+        <div className="header-right">
+          {isReal ? (
+            <span className="badge badge--live">● Live</span>
+          ) : (
+            <a className="badge badge--connect" href="http://localhost:3001/auth/strava">
+              Connect Strava
+            </a>
+          )}
+        </div>
       </header>
 
       <main className="main">
@@ -119,8 +220,8 @@ export default function App() {
             <div className="stat-label">avg mi / month</div>
           </div>
           <div className="stat">
-            <div className="stat-value">{Math.round(bestMonth.monthly)}</div>
-            <div className="stat-label">best month ({bestMonth.date.slice(0, 7)})</div>
+            <div className="stat-value">{bestMonth ? Math.round(bestMonth.monthly) : 0}</div>
+            <div className="stat-label">best month {bestMonth ? `(${bestMonth.date})` : ""}</div>
           </div>
           <div className="stat">
             <div className="stat-value">{Math.round(totalMiles / 26.2)}</div>
@@ -139,7 +240,7 @@ export default function App() {
           <div className="chart-wrap">
             <ResponsiveContainer width="100%" height={320}>
               <AreaChart
-                data={data}
+                data={chartData}
                 margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
                 onMouseMove={handleMouseMove}
                 onMouseLeave={handleMouseLeave}
@@ -151,39 +252,20 @@ export default function App() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke="#222" strokeDasharray="3 3" vertical={false} />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={tickFormatter}
-                  tick={{ fill: "#555", fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                  interval={0}
-                />
-                <YAxis
-                  tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`}
-                  tick={{ fill: "#555", fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                  width={42}
-                />
+                <XAxis dataKey="date" tickFormatter={tickFormatter} tick={{ fill: "#555", fontSize: 12 }} axisLine={false} tickLine={false} interval={0} />
+                <YAxis tickFormatter={(v) => `${(v / 1000).toFixed(1)}k`} tick={{ fill: "#555", fontSize: 12 }} axisLine={false} tickLine={false} width={42} />
                 <Tooltip content={<CustomTooltip />} cursor={<CustomCursor />} />
-                <Area
-                  type="monotone"
-                  dataKey="cumulative"
-                  stroke={STRAVA_ORANGE}
-                  strokeWidth={2.5}
-                  fill="url(#milesGrad)"
-                  dot={false}
-                  activeDot={{ r: 5, fill: STRAVA_ORANGE, strokeWidth: 0 }}
-                />
+                <Area type="monotone" dataKey="cumulative" stroke={STRAVA_ORANGE} strokeWidth={2.5} fill="url(#milesGrad)" dot={false} activeDot={{ r: 5, fill: STRAVA_ORANGE, strokeWidth: 0 }} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="data-note">
-          ⚡ Sample data — connect Strava to see your real miles
-        </div>
+        {!isReal && (
+          <div className="data-note">
+            ⚡ Sample data — <a href="http://localhost:3001/auth/strava">connect Strava</a> to see your real miles
+          </div>
+        )}
       </main>
     </div>
   );

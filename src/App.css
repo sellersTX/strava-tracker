@@ -198,6 +198,111 @@
   padding-top: 8px;
 }
 
+/* ── Header right ─────────────────────────────── */
+.header-right {
+  min-width: 120px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.badge {
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 20px;
+  padding: 5px 12px;
+  text-decoration: none;
+  letter-spacing: 0.3px;
+}
+
+.badge--live {
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.12);
+}
+
+.badge--connect {
+  color: #FC4C02;
+  background: rgba(252, 76, 2, 0.12);
+  transition: background 0.2s;
+}
+
+.badge--connect:hover {
+  background: rgba(252, 76, 2, 0.22);
+}
+
+/* ── Connect / Loading screen ─────────────────── */
+.connect-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #0d0d0d;
+}
+
+.connect-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  background: #161616;
+  border: 1px solid #1e1e1e;
+  border-radius: 20px;
+  padding: 48px 56px;
+  text-align: center;
+}
+
+.connect-card h2 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.connect-card p {
+  margin: 0;
+  color: #666;
+  font-size: 15px;
+}
+
+.connect-btn {
+  margin-top: 8px;
+  background: #FC4C02;
+  color: #fff;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 15px;
+  padding: 13px 28px;
+  border-radius: 10px;
+  transition: opacity 0.15s;
+}
+
+.connect-btn:hover {
+  opacity: 0.88;
+}
+
+/* ── Spinner ──────────────────────────────────── */
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #2a2a2a;
+  border-top-color: #FC4C02;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Data note link ───────────────────────────── */
+.data-note a {
+  color: #FC4C02;
+  text-decoration: none;
+}
+
+.data-note a:hover {
+  text-decoration: underline;
+}
+
 /* ── Responsive ───────────────────────────────── */
 @media (max-width: 600px) {
   .stats {
