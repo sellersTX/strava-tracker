@@ -91,19 +91,37 @@ function buildLocationData(runs) {
     .sort((a, b) => b.runs - a.runs);
 }
 
-function LocationTable({ runs }) {
-  const locations = useMemo(() => buildLocationData(runs), [runs]);
-  const located = runs.filter((r) => r.country).length;
-  const pct = Math.round((located / runs.length) * 100);
+function LocationTable({ runs, locations }) {
+  const runsWithLocation = useMemo(() => {
+    if (!locations) return [];
+    const locMap = Object.fromEntries(locations.map((l) => [l.id, l]));
+    return runs.map((r) => ({ ...r, ...locMap[r.id] }));
+  }, [runs, locations]);
 
-  if (!locations.length) return null;
+  const tableData = useMemo(() => buildLocationData(runsWithLocation), [runsWithLocation]);
+  const located = runsWithLocation.filter((r) => r.country).length;
+  const pct = runs.length ? Math.round((located / runs.length) * 100) : 0;
+
+  if (!locations) {
+    return (
+      <div className="chart-card">
+        <div className="chart-header">
+          <div>
+            <div className="chart-title">Where I've Run</div>
+            <div className="chart-hint">Geocoding locations…</div>
+          </div>
+        </div>
+        <div className="loc-loading"><div className="spinner" /></div>
+      </div>
+    );
+  }
 
   return (
     <div className="chart-card">
       <div className="chart-header">
         <div>
           <div className="chart-title">Where I've Run</div>
-          <div className="chart-hint">{locations.length} countries · {located} of {runs.length} runs with location ({pct}%)</div>
+          <div className="chart-hint">{tableData.length} countries · {located} of {runs.length} runs located ({pct}%)</div>
         </div>
       </div>
       <table className="loc-table">
@@ -115,7 +133,7 @@ function LocationTable({ runs }) {
           </tr>
         </thead>
         <tbody>
-          {locations.map(({ country, runs: count, cities }) => (
+          {tableData.map(({ country, runs: count, cities }) => (
             <tr key={country}>
               <td className="loc-country">{country}</td>
               <td className="loc-cities">
@@ -146,16 +164,25 @@ function LoadingScreen() {
 export default function App() {
   const [chartData, setChartData] = useState(null);
   const [rawRuns, setRawRuns] = useState(null);
+  const [locations, setLocations] = useState(null); // null = loading, [] = done
   const [hovered, setHovered] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    // Load activities first (fast) — chart appears immediately
     fetch("/api/activities")
       .then((r) => r.json())
       .then((runs) => {
         if (runs.error) throw new Error(runs.error);
         setRawRuns(runs);
         setChartData(processRuns(runs));
+
+        // Then load geocoded locations in the background (slow)
+        return fetch("/api/locations");
+      })
+      .then((r) => r.json())
+      .then((locs) => {
+        if (!locs.error) setLocations(locs);
       })
       .catch((e) => setError(e.message));
   }, []);
@@ -265,7 +292,7 @@ export default function App() {
             </ResponsiveContainer>
           </div>
         </div>
-        {rawRuns && <LocationTable runs={rawRuns} />}
+        {rawRuns && <LocationTable runs={rawRuns} locations={locations} />}
       </main>
     </div>
   );

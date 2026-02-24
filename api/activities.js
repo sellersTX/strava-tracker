@@ -38,9 +38,7 @@ export default async function handler(req, res) {
         date: a.start_date_local.slice(0, 10),
         distance_miles: Math.round((a.distance / 1609.34) * 100) / 100,
         moving_time: a.moving_time,
-        city: a.location_city ?? null,
-        state: a.location_state ?? null,
-        country: a.location_country ?? null,
+        latlng: a.start_latlng?.length === 2 ? a.start_latlng : null,
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
