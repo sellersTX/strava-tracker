@@ -8,6 +8,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import RunHeatmap from "./RunHeatmap";
 import "./App.css";
 
 const STRAVA_ORANGE = "#FC4C02";
@@ -292,6 +293,7 @@ export default function App() {
             </ResponsiveContainer>
           </div>
         </div>
+        {rawRuns && <RunHeatmap runs={rawRuns} />}
         {rawRuns && <LocationTable runs={rawRuns} locations={locations} />}
       </main>
     </div>

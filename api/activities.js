@@ -39,6 +39,7 @@ export default async function handler(req, res) {
         distance_miles: Math.round((a.distance / 1609.34) * 100) / 100,
         moving_time: a.moving_time,
         latlng: a.start_latlng?.length === 2 ? a.start_latlng : null,
+        polyline: a.map?.summary_polyline ?? null,
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
