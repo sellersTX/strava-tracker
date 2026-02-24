@@ -1,6 +1,5 @@
 import axios from "axios";
 
-// Allow up to 60s — geocoding many unique coordinates takes time
 export const config = { maxDuration: 60 };
 
 async function getFreshAccessToken() {
@@ -13,9 +12,8 @@ async function getFreshAccessToken() {
   return data.access_token;
 }
 
-// Round to 2 decimal places (~1km grid) to deduplicate nearby runs
-const roundCoord = (n) => Math.round(n * 100) / 100;
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 1 decimal place ≈ 11km grid — plenty of precision for city/country
+const roundCoord = (n) => Math.round(n * 10) / 10;
 
 async function reverseGeocode(lat, lng) {
   try {
@@ -26,7 +24,7 @@ async function reverseGeocode(lat, lng) {
         headers: {
           "User-Agent": "StravaRunTracker/1.0 (seandunbarsellers@gmail.com)",
         },
-        timeout: 5000,
+        timeout: 8000,
       }
     );
     const a = data.address ?? {};
@@ -39,11 +37,32 @@ async function reverseGeocode(lat, lng) {
   }
 }
 
+// Geocode in small parallel batches
+async function geocodeAll(keys) {
+  const results = {};
+  const BATCH = 5;
+  for (let i = 0; i < keys.length; i += BATCH) {
+    const batch = keys.slice(i, i + BATCH);
+    const settled = await Promise.all(
+      batch.map(async (key) => {
+        const [lat, lng] = key.split(",").map(Number);
+        const geo = await reverseGeocode(lat, lng);
+        return { key, geo };
+      })
+    );
+    settled.forEach(({ key, geo }) => { results[key] = geo; });
+    // Small pause between batches to be polite to Nominatim
+    if (i + BATCH < keys.length) {
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+  return results;
+}
+
 export default async function handler(req, res) {
   try {
     const accessToken = await getFreshAccessToken();
 
-    // Fetch all activities
     const all = [];
     let page = 1;
     while (true) {
@@ -62,36 +81,29 @@ export default async function handler(req, res) {
 
     const runs = all.filter((a) => a.type === "Run" || a.sport_type === "Run");
 
-    // Build unique coordinate keys
-    const coordCache = {}; // "lat,lng" -> { city, country }
+    // Collect unique rounded coordinates
+    const coordCache = {};
     for (const run of runs) {
       if (!run.start_latlng?.length) continue;
       const key = `${roundCoord(run.start_latlng[0])},${roundCoord(run.start_latlng[1])}`;
-      if (!(key in coordCache)) coordCache[key] = null;
+      coordCache[key] = null;
     }
 
-    // Geocode each unique location (1 req per 300ms to respect Nominatim ToS)
-    const keys = Object.keys(coordCache);
-    for (let i = 0; i < keys.length; i++) {
-      const [lat, lng] = keys[i].split(",").map(Number);
-      coordCache[keys[i]] = await reverseGeocode(lat, lng);
-      if (i < keys.length - 1) await sleep(300);
-    }
+    const geocoded = await geocodeAll(Object.keys(coordCache));
 
-    // Return location data keyed by activity id
     const result = runs.map((a) => {
       let city = null, country = null;
       if (a.start_latlng?.length) {
         const key = `${roundCoord(a.start_latlng[0])},${roundCoord(a.start_latlng[1])}`;
-        city = coordCache[key]?.city ?? null;
-        country = coordCache[key]?.country ?? null;
+        city = geocoded[key]?.city ?? null;
+        country = geocoded[key]?.country ?? null;
       }
       return { id: a.id, city, country };
     });
 
     res.json(result);
   } catch (e) {
-    console.error("Locations fetch failed:", e.message);
+    console.error("Locations failed:", e.message);
     res.status(500).json({ error: e.message });
   }
 }
