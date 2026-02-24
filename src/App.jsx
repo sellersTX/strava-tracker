@@ -69,6 +69,69 @@ function CustomCursor({ points, height }) {
   );
 }
 
+function buildLocationData(runs) {
+  const countries = {};
+  for (const run of runs) {
+    if (!run.country) continue;
+    if (!countries[run.country]) countries[run.country] = { runs: 0, cities: {} };
+    countries[run.country].runs++;
+    if (run.city) {
+      countries[run.country].cities[run.city] =
+        (countries[run.country].cities[run.city] ?? 0) + 1;
+    }
+  }
+  return Object.entries(countries)
+    .map(([country, data]) => ({
+      country,
+      runs: data.runs,
+      cities: Object.entries(data.cities)
+        .sort((a, b) => b[1] - a[1])
+        .map(([city]) => city),
+    }))
+    .sort((a, b) => b.runs - a.runs);
+}
+
+function LocationTable({ runs }) {
+  const locations = useMemo(() => buildLocationData(runs), [runs]);
+  const located = runs.filter((r) => r.country).length;
+  const pct = Math.round((located / runs.length) * 100);
+
+  if (!locations.length) return null;
+
+  return (
+    <div className="chart-card">
+      <div className="chart-header">
+        <div>
+          <div className="chart-title">Where I've Run</div>
+          <div className="chart-hint">{locations.length} countries · {located} of {runs.length} runs with location ({pct}%)</div>
+        </div>
+      </div>
+      <table className="loc-table">
+        <thead>
+          <tr>
+            <th>Country</th>
+            <th>Cities</th>
+            <th className="loc-runs">Runs</th>
+          </tr>
+        </thead>
+        <tbody>
+          {locations.map(({ country, runs: count, cities }) => (
+            <tr key={country}>
+              <td className="loc-country">{country}</td>
+              <td className="loc-cities">
+                {cities.length > 0
+                  ? cities.join(", ")
+                  : <span className="loc-none">—</span>}
+              </td>
+              <td className="loc-runs">{count}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function LoadingScreen() {
   return (
     <div className="connect-screen">
@@ -81,7 +144,8 @@ function LoadingScreen() {
 }
 
 export default function App() {
-  const [data, setData] = useState(null);
+  const [chartData, setChartData] = useState(null);
+  const [rawRuns, setRawRuns] = useState(null);
   const [hovered, setHovered] = useState(null);
   const [error, setError] = useState(null);
 
@@ -90,28 +154,29 @@ export default function App() {
       .then((r) => r.json())
       .then((runs) => {
         if (runs.error) throw new Error(runs.error);
-        setData(processRuns(runs));
+        setRawRuns(runs);
+        setChartData(processRuns(runs));
       })
       .catch((e) => setError(e.message));
   }, []);
 
-  const chartData = data ?? [];
-  const totalMiles = chartData.length ? chartData[chartData.length - 1].cumulative : 0;
+  const chart = chartData ?? [];
+  const totalMiles = chart.length ? chart[chart.length - 1].cumulative : 0;
   const displayMiles = hovered !== null ? hovered : totalMiles;
   const isHovering = hovered !== null;
 
-  const firstYear = chartData[0]?.date.slice(0, 4) ?? "";
-  const lastYear = chartData[chartData.length - 1]?.date.slice(0, 4) ?? "";
+  const firstYear = chart[0]?.date.slice(0, 4) ?? "";
+  const lastYear = chart[chart.length - 1]?.date.slice(0, 4) ?? "";
   const yearsRunning = firstYear && lastYear ? Number(lastYear) - Number(firstYear) + 1 : 0;
 
   const avgMonthly = useMemo(() => {
-    if (!chartData.length) return 0;
-    return Math.round(chartData.reduce((s, d) => s + d.monthly, 0) / chartData.length);
-  }, [chartData]);
+    if (!chart.length) return 0;
+    return Math.round(chart.reduce((s, d) => s + d.monthly, 0) / chart.length);
+  }, [chart]);
 
   const bestMonth = useMemo(() => {
-    return chartData.reduce((best, d) => (d.monthly > (best?.monthly ?? 0) ? d : best), null);
-  }, [chartData]);
+    return chart.reduce((best, d) => (d.monthly > (best?.monthly ?? 0) ? d : best), null);
+  }, [chart]);
 
   const handleMouseMove = useCallback((e) => {
     if (e?.activePayload?.length) setHovered(e.activePayload[0].payload.cumulative);
@@ -122,7 +187,7 @@ export default function App() {
   const intPart = Math.floor(displayMiles);
   const decPart = Math.round((displayMiles % 1) * 10);
 
-  if (!data && !error) return <LoadingScreen />;
+  if (!chartData && !error) return <LoadingScreen />;
 
   return (
     <div className="app">
@@ -180,7 +245,7 @@ export default function App() {
           <div className="chart-wrap">
             <ResponsiveContainer width="100%" height={320}>
               <AreaChart
-                data={chartData}
+                data={chart}
                 margin={{ top: 10, right: 16, left: 0, bottom: 0 }}
                 onMouseMove={handleMouseMove}
                 onMouseLeave={handleMouseLeave}
@@ -200,6 +265,7 @@ export default function App() {
             </ResponsiveContainer>
           </div>
         </div>
+        {rawRuns && <LocationTable runs={rawRuns} />}
       </main>
     </div>
   );
