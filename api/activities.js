@@ -10,25 +10,41 @@ async function getFreshAccessToken() {
   return data.access_token;
 }
 
+async function fetchPage(token, page) {
+  const { data } = await axios.get(
+    "https://www.strava.com/api/v3/athlete/activities",
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { per_page: 200, page },
+    }
+  );
+  return data;
+}
+
+// Fetch all pages in parallel batches of 5 instead of one-by-one
+async function fetchAllActivities(token) {
+  const all = [];
+  let page = 1;
+
+  while (true) {
+    // Fire up to 5 pages at once
+    const batch = await Promise.all(
+      Array.from({ length: 5 }, (_, i) => fetchPage(token, page + i))
+    );
+
+    for (const results of batch) {
+      all.push(...results);
+      if (results.length < 200) return all; // hit the last page
+    }
+
+    page += 5;
+  }
+}
+
 export default async function handler(req, res) {
   try {
     const accessToken = await getFreshAccessToken();
-
-    const all = [];
-    let page = 1;
-    while (true) {
-      const { data } = await axios.get(
-        "https://www.strava.com/api/v3/athlete/activities",
-        {
-          headers: { Authorization: `Bearer ${accessToken}` },
-          params: { per_page: 200, page },
-        }
-      );
-      if (!data.length) break;
-      all.push(...data);
-      if (data.length < 200) break;
-      page++;
-    }
+    const all = await fetchAllActivities(accessToken);
 
     const runs = all
       .filter((a) => a.type === "Run" || a.sport_type === "Run")

@@ -95,8 +95,13 @@ function buildLocationData(runs) {
 function LocationTable({ runs, locations }) {
   const runsWithLocation = useMemo(() => {
     if (!locations) return [];
-    const locMap = Object.fromEntries(locations.map((l) => [l.id, l]));
-    return runs.map((r) => ({ ...r, ...locMap[r.id] }));
+    const snap = (n) => Math.round(n * 10) / 10;
+    return runs.map((r) => {
+      if (!r.latlng) return { ...r, city: null, country: null };
+      const key = `${snap(r.latlng[0])},${snap(r.latlng[1])}`;
+      const geo = locations[key] ?? {};
+      return { ...r, city: geo.city ?? null, country: geo.country ?? null };
+    });
   }, [runs, locations]);
 
   const tableData = useMemo(() => buildLocationData(runsWithLocation), [runsWithLocation]);
@@ -170,7 +175,6 @@ export default function App() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Load activities first (fast) — chart appears immediately
     fetch("/api/activities")
       .then((r) => r.json())
       .then((runs) => {
@@ -178,12 +182,26 @@ export default function App() {
         setRawRuns(runs);
         setChartData(processRuns(runs));
 
-        // Then load geocoded locations in the background (slow)
-        return fetch("/api/locations");
+        // Extract unique rounded coords from activities the frontend already has
+        // — no second Strava fetch needed
+        const snap = (n) => Math.round(n * 10) / 10;
+        const uniqueCoords = [
+          ...new Set(
+            runs
+              .filter((r) => r.latlng)
+              .map((r) => `${snap(r.latlng[0])},${snap(r.latlng[1])}`)
+          ),
+        ];
+
+        return fetch("/api/geocode", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ coords: uniqueCoords }),
+        });
       })
       .then((r) => r.json())
-      .then((locs) => {
-        if (!locs.error) setLocations(locs);
+      .then((geoMap) => {
+        if (!geoMap.error) setLocations(geoMap);
       })
       .catch((e) => setError(e.message));
   }, []);
