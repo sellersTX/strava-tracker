@@ -1,54 +1,26 @@
 import axios from "axios";
 
-function parseTokenCookie(cookieHeader) {
-  if (!cookieHeader) return null;
-  const match = cookieHeader.match(/strava_token=([^;]+)/);
-  if (!match) return null;
-  try {
-    return JSON.parse(Buffer.from(match[1], "base64").toString("utf-8"));
-  } catch {
-    return null;
-  }
-}
-
-async function ensureFreshToken(tokens, res) {
-  if (Date.now() / 1000 <= tokens.expires_at - 300) return tokens;
-
+async function getFreshAccessToken() {
   const { data } = await axios.post("https://www.strava.com/oauth/token", {
     client_id: process.env.STRAVA_CLIENT_ID,
     client_secret: process.env.STRAVA_CLIENT_SECRET,
-    refresh_token: tokens.refresh_token,
+    refresh_token: process.env.STRAVA_REFRESH_TOKEN,
     grant_type: "refresh_token",
   });
-
-  const fresh = { ...tokens, ...data };
-  const encoded = Buffer.from(JSON.stringify(fresh)).toString("base64");
-  const year = 60 * 60 * 24 * 365;
-  res.setHeader(
-    "Set-Cookie",
-    `strava_token=${encoded}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${year}`
-  );
-  return fresh;
+  return data.access_token;
 }
 
 export default async function handler(req, res) {
-  let tokens = parseTokenCookie(req.headers.cookie);
-  if (!tokens) return res.status(401).json({ error: "Not authenticated" });
-
   try {
-    tokens = await ensureFreshToken(tokens, res);
-  } catch {
-    return res.status(401).json({ error: "Token refresh failed" });
-  }
+    const accessToken = await getFreshAccessToken();
 
-  try {
     const all = [];
     let page = 1;
     while (true) {
       const { data } = await axios.get(
         "https://www.strava.com/api/v3/athlete/activities",
         {
-          headers: { Authorization: `Bearer ${tokens.access_token}` },
+          headers: { Authorization: `Bearer ${accessToken}` },
           params: { per_page: 200, page },
         }
       );
@@ -71,6 +43,7 @@ export default async function handler(req, res) {
 
     res.json(runs);
   } catch (e) {
+    console.error("Activities fetch failed:", e.message);
     res.status(500).json({ error: e.message });
   }
 }

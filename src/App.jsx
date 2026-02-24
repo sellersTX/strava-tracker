@@ -8,12 +8,10 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { generateFakeData } from "./data/fakeRuns";
 import "./App.css";
 
 const STRAVA_ORANGE = "#FC4C02";
 
-// Convert raw Strava runs into monthly cumulative chart data
 function processRuns(runs) {
   const monthMap = {};
   for (const run of runs) {
@@ -71,80 +69,30 @@ function CustomCursor({ points, height }) {
   );
 }
 
-function ConnectScreen() {
-  return (
-    <div className="connect-screen">
-      <div className="connect-card">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill={STRAVA_ORANGE}>
-          <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
-        </svg>
-        <h2>Connect your Strava</h2>
-        <p>Link your account to see your real lifetime mileage.</p>
-        <a className="connect-btn" href="/api/auth/strava">
-          Connect with Strava
-        </a>
-      </div>
-    </div>
-  );
-}
-
 function LoadingScreen() {
   return (
     <div className="connect-screen">
       <div className="connect-card">
         <div className="spinner" />
-        <p>Loading your runs…</p>
+        <p>Loading runs…</p>
       </div>
     </div>
   );
 }
 
 export default function App() {
-  const [status, setStatus] = useState("checking"); // checking | disconnected | loading | ready | error
   const [data, setData] = useState(null);
   const [hovered, setHovered] = useState(null);
-  const [isReal, setIsReal] = useState(false);
+  const [error, setError] = useState(null);
 
-  // Check connection & handle OAuth redirect
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const justConnected = params.get("connected") === "true";
-    const authError = params.get("error");
-
-    // Clean the URL
-    if (justConnected || authError) {
-      window.history.replaceState({}, "", "/");
-    }
-
-    if (authError) {
-      setStatus("disconnected");
-      return;
-    }
-
-    // Check if server has a valid token
-    fetch("/api/status")
+    fetch("/api/activities")
       .then((r) => r.json())
-      .then(({ connected }) => {
-        if (connected) {
-          setStatus("loading");
-          return fetch("/api/activities")
-            .then((r) => r.json())
-            .then((runs) => {
-              if (runs.error) throw new Error(runs.error);
-              setData(processRuns(runs));
-              setIsReal(true);
-              setStatus("ready");
-            });
-        } else {
-          setStatus("disconnected");
-        }
+      .then((runs) => {
+        if (runs.error) throw new Error(runs.error);
+        setData(processRuns(runs));
       })
-      .catch(() => {
-        // Server not running — fall back to fake data
-        setData(generateFakeData());
-        setIsReal(false);
-        setStatus("ready");
-      });
+      .catch((e) => setError(e.message));
   }, []);
 
   const chartData = data ?? [];
@@ -171,12 +119,10 @@ export default function App() {
   const handleMouseLeave = useCallback(() => setHovered(null), []);
 
   const tickFormatter = (val) => (val.endsWith("-01") ? val.slice(0, 4) : "");
-
   const intPart = Math.floor(displayMiles);
   const decPart = Math.round((displayMiles % 1) * 10);
 
-  if (status === "checking" || status === "loading") return <LoadingScreen />;
-  if (status === "disconnected") return <ConnectScreen />;
+  if (!data && !error) return <LoadingScreen />;
 
   return (
     <div className="app">
@@ -189,13 +135,7 @@ export default function App() {
         </div>
         <div className="header-name">Sean Sellers</div>
         <div className="header-right">
-          {isReal ? (
-            <span className="badge badge--live">● Live</span>
-          ) : (
-            <a className="badge badge--connect" href="/api/auth/strava">
-              Connect Strava
-            </a>
-          )}
+          <span className="badge badge--live">● Live</span>
         </div>
       </header>
 
@@ -260,12 +200,6 @@ export default function App() {
             </ResponsiveContainer>
           </div>
         </div>
-
-        {!isReal && (
-          <div className="data-note">
-            ⚡ Sample data — <a href="/api/auth/strava">connect Strava</a> to see your real miles
-          </div>
-        )}
       </main>
     </div>
   );

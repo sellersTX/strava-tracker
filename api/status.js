@@ -1,4 +1,3 @@
 export default function handler(req, res) {
-  const connected = /strava_token=/.test(req.headers.cookie || "");
-  res.json({ connected });
+  res.json({ connected: !!process.env.STRAVA_REFRESH_TOKEN });
 }
