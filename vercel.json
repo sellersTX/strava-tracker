@@ -3,6 +3,6 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "functions": {
-    "api/locations.js": { "maxDuration": 60 }
+    "api/geocode.js": { "maxDuration": 60 }
   }
 }
