@@ -1,9 +1,7 @@
 import axios from "axios";
+import { kv } from "@vercel/kv";
 
 export const config = { maxDuration: 60 };
-
-// Accepts POST { coords: ["40.7,-74.0", "42.4,-71.1", ...] }
-// Returns      { "40.7,-74.0": { city, country }, ... }
 
 async function reverseGeocode(lat, lng) {
   try {
@@ -35,24 +33,41 @@ export default async function handler(req, res) {
   }
 
   const { coords } = req.body ?? {};
-  if (!Array.isArray(coords) || !coords.length) {
-    return res.json({});
-  }
+  if (!Array.isArray(coords) || !coords.length) return res.json({});
+
+  // Batch-read all coords from cache in one round-trip
+  const cacheKeys = coords.map((c) => `geo:${c}`);
+  const cached = await kv.mget(...cacheKeys);
 
   const result = {};
-  const BATCH = 5;
+  const toGeocode = [];
 
-  for (let i = 0; i < coords.length; i += BATCH) {
-    const batch = coords.slice(i, i + BATCH);
+  coords.forEach((coord, i) => {
+    if (cached[i]) {
+      result[coord] = cached[i]; // cache hit
+    } else {
+      toGeocode.push(coord);     // needs geocoding
+    }
+  });
+
+  // Geocode only the uncached coords in parallel batches
+  const BATCH = 5;
+  for (let i = 0; i < toGeocode.length; i += BATCH) {
+    const batch = toGeocode.slice(i, i + BATCH);
     const settled = await Promise.all(
       batch.map(async (key) => {
         const [lat, lng] = key.split(",").map(Number);
         return { key, geo: await reverseGeocode(lat, lng) };
       })
     );
+
+    // Store new results in cache (no TTL — locations don't change)
+    await Promise.all(
+      settled.map(({ key, geo }) => kv.set(`geo:${key}`, geo))
+    );
     settled.forEach(({ key, geo }) => { result[key] = geo; });
 
-    if (i + BATCH < coords.length) await sleep(500);
+    if (i + BATCH < toGeocode.length) await sleep(500);
   }
 
   res.json(result);
