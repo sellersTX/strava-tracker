@@ -1,8 +1,18 @@
 import axios from "axios";
-import { kv } from "@vercel/kv";
 
 const RUNS_KEY = "runs:v1";
 const RUNS_TS_KEY = "runs:last_ts";
+
+// KV is optional — if env vars aren't set, we skip caching gracefully
+async function getKV() {
+  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) return null;
+  try {
+    const { kv } = await import("@vercel/kv");
+    return kv;
+  } catch {
+    return null;
+  }
+}
 
 async function getFreshAccessToken() {
   const { data } = await axios.post("https://www.strava.com/oauth/token", {
@@ -25,7 +35,6 @@ async function fetchPage(token, page, after = 0) {
   return data;
 }
 
-// Parallel batch fetch — used for the first full load
 async function fetchAllPages(token) {
   const all = [];
   let page = 1;
@@ -41,7 +50,6 @@ async function fetchAllPages(token) {
   }
 }
 
-// Sequential fetch — used for incremental updates (usually just 1–2 pages)
 async function fetchNewPages(token, after) {
   const all = [];
   let page = 1;
@@ -70,48 +78,51 @@ function mapActivity(a) {
 
 export default async function handler(req, res) {
   try {
-    // Read cache and last timestamp in parallel
-    const [cachedRuns, lastTs] = await Promise.all([
-      kv.get(RUNS_KEY),
-      kv.get(RUNS_TS_KEY),
-    ]);
-
+    const kv = await getKV();
     const token = await getFreshAccessToken();
 
-    if (cachedRuns?.length) {
-      // Cache hit — only fetch activities newer than last cached run
-      const newActivities = await fetchNewPages(token, lastTs ?? 0);
-      const newRuns = newActivities
-        .filter((a) => a.type === "Run" || a.sport_type === "Run")
-        .map(mapActivity);
+    if (kv) {
+      const [cachedRuns, lastTs] = await Promise.all([
+        kv.get(RUNS_KEY),
+        kv.get(RUNS_TS_KEY),
+      ]);
 
-      if (newRuns.length > 0) {
-        const merged = [...cachedRuns, ...newRuns]
-          .sort((a, b) => a.date.localeCompare(b.date));
-        const newLastTs = Math.max(...newRuns.map((r) => r.ts));
-        // Update cache in background — don't make user wait
-        kv.set(RUNS_KEY, merged);
-        kv.set(RUNS_TS_KEY, newLastTs);
-        return res.json(merged);
+      if (cachedRuns?.length) {
+        const newActivities = await fetchNewPages(token, lastTs ?? 0);
+        const newRuns = newActivities
+          .filter((a) => a.type === "Run" || a.sport_type === "Run")
+          .map(mapActivity);
+
+        if (newRuns.length > 0) {
+          const merged = [...cachedRuns, ...newRuns]
+            .sort((a, b) => a.date.localeCompare(b.date));
+          const newLastTs = Math.max(...newRuns.map((r) => r.ts));
+          kv.set(RUNS_KEY, merged);
+          kv.set(RUNS_TS_KEY, newLastTs);
+          return res.json(merged);
+        }
+
+        return res.json(cachedRuns);
       }
 
-      // Nothing new — return cache instantly
-      return res.json(cachedRuns);
+      // Cache miss — full fetch then store
+      const all = await fetchAllPages(token);
+      const runs = all
+        .filter((a) => a.type === "Run" || a.sport_type === "Run")
+        .map(mapActivity)
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+      const newLastTs = runs.length ? Math.max(...runs.map((r) => r.ts)) : 0;
+      await Promise.all([kv.set(RUNS_KEY, runs), kv.set(RUNS_TS_KEY, newLastTs)]);
+      return res.json(runs);
     }
 
-    // Cache miss — full fetch, then store
+    // No KV — fetch directly every time
     const all = await fetchAllPages(token);
     const runs = all
       .filter((a) => a.type === "Run" || a.sport_type === "Run")
       .map(mapActivity)
       .sort((a, b) => a.date.localeCompare(b.date));
-
-    const newLastTs = runs.length ? Math.max(...runs.map((r) => r.ts)) : 0;
-    await Promise.all([
-      kv.set(RUNS_KEY, runs),
-      kv.set(RUNS_TS_KEY, newLastTs),
-    ]);
-
     res.json(runs);
   } catch (e) {
     console.error("Activities failed:", e.message);
