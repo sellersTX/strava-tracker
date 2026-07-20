@@ -175,17 +175,20 @@ export default function App() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    fetch("/api/activities")
-      .then((r) => r.json())
-      .then((runs) => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const runs = await fetch("/api/activities").then((r) => r.json());
         if (runs.error) throw new Error(runs.error);
+        if (cancelled) return;
         setRawRuns(runs);
         setChartData(processRuns(runs));
 
         // Extract unique rounded coords from activities the frontend already has
         // — no second Strava fetch needed
         const snap = (n) => Math.round(n * 10) / 10;
-        const uniqueCoords = [
+        let remaining = [
           ...new Set(
             runs
               .filter((r) => r.latlng)
@@ -193,17 +196,34 @@ export default function App() {
           ),
         ];
 
-        return fetch("/api/geocode", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ coords: uniqueCoords }),
-        });
-      })
-      .then((r) => r.json())
-      .then((geoMap) => {
-        if (!geoMap.error) setLocations(geoMap);
-      })
-      .catch((e) => setError(e.message));
+        // The server geocodes at 1 req/s under a time budget and omits coords
+        // it didn't reach — keep asking for the rest until nothing new arrives.
+        const geoMap = {};
+        for (let round = 0; round < 5 && remaining.length; round++) {
+          const res = await fetch("/api/geocode", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ coords: remaining }),
+          }).then((r) => r.json());
+          if (cancelled) return;
+          if (res.error) break;
+          Object.assign(geoMap, res);
+          setLocations({ ...geoMap });
+          const next = remaining.filter((c) => !res[c]);
+          if (next.length === remaining.length) break; // no progress — stop
+          remaining = next;
+        }
+        if (!cancelled) setLocations({ ...geoMap });
+      } catch (e) {
+        if (!cancelled) {
+          setError(e.message);
+          setLocations({});
+        }
+      }
+    }
+
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   const chart = chartData ?? [];
