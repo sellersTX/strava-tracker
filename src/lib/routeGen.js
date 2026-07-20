@@ -38,7 +38,8 @@ export async function geocodeAddress(query) {
 const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 
 // Runnable ways only — no motorways, no parking-lot service roads, and no
-// sidewalk/crossing footways (they duplicate the street they run beside).
+// sidewalk footways (they duplicate the street they run beside). Crossings
+// stay: they stitch plazas and park paths onto the street grid.
 const HIGHWAY_RE =
   "^(residential|unclassified|tertiary|secondary|primary|living_street|pedestrian|footway|path|cycleway|track)$";
 
@@ -46,7 +47,7 @@ export async function fetchRoadGraph(lat, lng, radiusM) {
   const query = `[out:json][timeout:40];
 way(around:${Math.round(radiusM)},${lat},${lng})
   ["highway"~"${HIGHWAY_RE}"]
-  ["footway"!~"^(sidewalk|crossing)$"]
+  ["footway"!~"^sidewalk$"]
   ["access"!~"^(private|no)$"];
 out geom;`;
 
@@ -95,7 +96,107 @@ out geom;`;
   if (!adj.size) {
     throw new Error("No runnable streets found near that address");
   }
-  return { nodes, adj };
+  const graph = { nodes, adj };
+  connectComponents(graph);
+  return graph;
+}
+
+// OSM pedestrian data is fragmented: park paths, plazas, and trail networks
+// often don't share nodes with the street grid. Attach every fragment that
+// sits within a short hop of the main component via a virtual connector
+// edge, and drop whatever remains unreachable so routes never start or get
+// stuck on an island.
+const CONNECT_MAX_M = 80;
+
+function connectComponents(graph) {
+  const { nodes, adj } = graph;
+
+  // Label connected components
+  const comp = new Map();
+  const compSizes = [];
+  for (const id of adj.keys()) {
+    if (comp.has(id)) continue;
+    const idx = compSizes.length;
+    let size = 0;
+    const stack = [id];
+    comp.set(id, idx);
+    while (stack.length) {
+      const u = stack.pop();
+      size++;
+      for (const e of adj.get(u) ?? []) {
+        if (!comp.has(e.to)) {
+          comp.set(e.to, idx);
+          stack.push(e.to);
+        }
+      }
+    }
+    compSizes.push(size);
+  }
+  if (compSizes.length <= 1) return;
+
+  const mainIdx = compSizes.indexOf(Math.max(...compSizes));
+
+  // Spatial buckets of main-component nodes for nearest-neighbor lookups
+  const BDEG = 0.001; // ~110m
+  const buckets = new Map();
+  for (const [id, c] of comp) {
+    if (c !== mainIdx) continue;
+    const [lat, lng] = nodes.get(id);
+    const k = `${Math.round(lat / BDEG)},${Math.round(lng / BDEG)}`;
+    let arr = buckets.get(k);
+    if (!arr) buckets.set(k, (arr = []));
+    arr.push(id);
+  }
+
+  // For each fragment, find its closest approach to the main component
+  const bestByComp = new Map(); // compIdx -> { d, from, to }
+  for (const [id, c] of comp) {
+    if (c === mainIdx) continue;
+    const [lat, lng] = nodes.get(id);
+    const ci = Math.round(lat / BDEG);
+    const cj = Math.round(lng / BDEG);
+    for (let di = -1; di <= 1; di++) {
+      for (let dj = -1; dj <= 1; dj++) {
+        for (const mainId of buckets.get(`${ci + di},${cj + dj}`) ?? []) {
+          const [mLat, mLng] = nodes.get(mainId);
+          const d = haversine(lat, lng, mLat, mLng);
+          const best = bestByComp.get(c);
+          if (d <= CONNECT_MAX_M && (!best || d < best.d)) {
+            bestByComp.set(c, { d, from: id, to: mainId });
+          }
+        }
+      }
+    }
+  }
+
+  // Add virtual connector edges (never counted as novel ground)
+  for (const { d, from, to } of bestByComp.values()) {
+    const key = `x${from}|${to}`;
+    const len = Math.max(d, 1);
+    adj.get(from).push({ to, len, key, novel: false, connector: true });
+    adj.get(to).push({ to: from, len, key, novel: false, connector: true });
+  }
+
+  // Keep only what's now reachable from the main component
+  const keep = new Set();
+  const seedId = comp.keys().next() && [...comp.entries()].find(([, c]) => c === mainIdx)[0];
+  const stack = [seedId];
+  keep.add(seedId);
+  while (stack.length) {
+    const u = stack.pop();
+    for (const e of adj.get(u) ?? []) {
+      if (!keep.has(e.to)) {
+        keep.add(e.to);
+        stack.push(e.to);
+      }
+    }
+  }
+  for (const id of [...adj.keys()]) {
+    if (!keep.has(id)) {
+      adj.delete(id);
+      nodes.delete(id);
+    }
+  }
 }
 
 export function nearestNode(graph, lat, lng) {
@@ -189,6 +290,10 @@ export function markNovelty(graph, buckets) {
   for (const [id, edges] of graph.adj) {
     const pa = graph.nodes.get(id);
     for (const e of edges) {
+      if (e.connector) {
+        e.novel = false;
+        continue;
+      }
       let novel = novelByKey.get(e.key);
       if (novel === undefined) {
         const pb = graph.nodes.get(e.to);
