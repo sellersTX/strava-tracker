@@ -393,6 +393,148 @@
   padding: 32px 0 16px;
 }
 
+/* ── Generate a Run ───────────────────────────── */
+.gen-form {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.gen-input {
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  color: #e0e0e0;
+  font-size: 14px;
+  padding: 11px 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.gen-input:focus {
+  border-color: #FC4C02;
+}
+
+.gen-input::placeholder {
+  color: #444;
+}
+
+.gen-input--address {
+  flex: 1;
+  min-width: 0;
+}
+
+.gen-miles {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.gen-input--miles {
+  width: 78px;
+  padding-right: 34px;
+  text-align: right;
+}
+
+.gen-unit {
+  position: absolute;
+  right: 12px;
+  font-size: 12px;
+  color: #555;
+  pointer-events: none;
+}
+
+.gen-btn {
+  background: #FC4C02;
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 11px 20px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.gen-btn:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.gen-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.gen-btn--ghost {
+  background: #1e1e1e;
+  color: #ccc;
+  font-weight: 600;
+}
+
+.gen-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #888;
+  font-size: 13px;
+  padding: 14px 2px 6px;
+}
+
+.spinner--sm {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+
+.gen-error {
+  color: #ff6b6b;
+  font-size: 13px;
+  padding: 12px 2px 4px;
+}
+
+.gen-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 16px 0 4px;
+}
+
+.gen-stat {
+  background: #0f0f0f;
+  border: 1px solid #1e1e1e;
+  border-radius: 10px;
+  padding: 12px;
+  text-align: center;
+}
+
+.gen-stat-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #FC4C02;
+  letter-spacing: -0.5px;
+}
+
+.gen-stat-label {
+  margin-top: 2px;
+  font-size: 10px;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.gen-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 2px 6px;
+}
+
+.gen-note {
+  margin-left: auto;
+  font-size: 12px;
+  color: #444;
+}
+
 /* ── Responsive ───────────────────────────────── */
 @media (max-width: 600px) {
   .stats {
@@ -404,6 +546,26 @@
   }
 
   .header-sub {
+    display: none;
+  }
+
+  .gen-form {
+    flex-wrap: wrap;
+  }
+
+  .gen-input--address {
+    flex-basis: 100%;
+  }
+
+  .gen-miles {
+    flex: 1;
+  }
+
+  .gen-input--miles {
+    width: 100%;
+  }
+
+  .gen-note {
     display: none;
   }
 }

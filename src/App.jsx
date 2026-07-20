@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import RunHeatmap from "./RunHeatmap";
+import GenerateRun from "./GenerateRun";
 import "./App.css";
 
 const STRAVA_ORANGE = "#FC4C02";
@@ -332,6 +333,7 @@ export default function App() {
           </div>
         </div>
         {rawRuns && <RunHeatmap runs={rawRuns} />}
+        {rawRuns && <GenerateRun runs={rawRuns} />}
         {rawRuns && <LocationTable runs={rawRuns} locations={locations} />}
       </main>
     </div>
