@@ -393,9 +393,96 @@
   padding: 32px 0 16px;
 }
 
-/* ── Generate a Run ───────────────────────────── */
+/* ── Generate a Run (side panel) ──────────────── */
+.gen-tab {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  writing-mode: vertical-rl;
+  background: #FC4C02;
+  color: #fff;
+  border: none;
+  border-radius: 10px 0 0 10px;
+  padding: 18px 11px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  z-index: 1100;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  transition: opacity 0.15s, padding 0.15s;
+}
+
+.gen-tab:hover {
+  opacity: 0.9;
+  padding-right: 15px;
+}
+
+.gen-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 1200;
+}
+
+.gen-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100dvh;
+  width: min(480px, 100vw);
+  background: #121212;
+  border-left: 1px solid #222;
+  z-index: 1300;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.5);
+  animation: gen-slide-in 0.25s ease;
+}
+
+@keyframes gen-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: none; }
+}
+
+.gen-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 20px 14px;
+  border-bottom: 1px solid #1e1e1e;
+}
+
+.gen-close {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 26px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.gen-close:hover {
+  color: #fff;
+}
+
+.gen-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 20px 24px;
+}
+
+.map-wrap--drawer {
+  height: 320px;
+  margin-top: 16px;
+}
+
 .gen-form {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 4px;
 }
@@ -420,7 +507,7 @@
 }
 
 .gen-input--address {
-  flex: 1;
+  flex: 1 1 100%;
   min-width: 0;
 }
 
@@ -428,10 +515,11 @@
   position: relative;
   display: flex;
   align-items: center;
+  flex: 1;
 }
 
 .gen-input--miles {
-  width: 78px;
+  width: 100%;
   padding-right: 34px;
   text-align: right;
 }
@@ -526,11 +614,11 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 2px 6px;
+  padding: 14px 2px 0;
 }
 
 .gen-note {
-  margin-left: auto;
+  padding-top: 12px;
   font-size: 12px;
   color: #444;
 }
@@ -549,23 +637,9 @@
     display: none;
   }
 
-  .gen-form {
-    flex-wrap: wrap;
-  }
-
-  .gen-input--address {
-    flex-basis: 100%;
-  }
-
-  .gen-miles {
-    flex: 1;
-  }
-
-  .gen-input--miles {
-    width: 100%;
-  }
-
-  .gen-note {
-    display: none;
+  .gen-tab {
+    top: auto;
+    bottom: 24px;
+    transform: none;
   }
 }

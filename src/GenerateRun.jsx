@@ -18,7 +18,10 @@ const BLUE = "#4FA3FF";
 function FitRoute({ coords }) {
   const map = useMap();
   useEffect(() => {
-    if (coords?.length) map.fitBounds(coords, { padding: [30, 30] });
+    if (coords?.length) {
+      map.invalidateSize();
+      map.fitBounds(coords, { padding: [30, 30] });
+    }
   }, [map, coords]);
   return null;
 }
@@ -46,12 +49,27 @@ function pastRunsInBounds(runs, bounds) {
 const paint = () => new Promise((r) => setTimeout(r, 30));
 
 export default function GenerateRun({ runs }) {
+  const [open, setOpen] = useState(false);
   const [address, setAddress] = useState("");
   const [miles, setMiles] = useState("4");
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const cacheRef = useRef(null); // reuse graph/coverage between shuffles
+
+  // Lock page scroll and close on Escape while the panel is open
+  useEffect(() => {
+    if (!open) return;
+    document.body.style.overflow = "hidden";
+    const onKey = (e) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = "";
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
 
   async function handleGenerate(shuffle) {
     const milesNum = Number(miles);
@@ -135,132 +153,158 @@ export default function GenerateRun({ runs }) {
   const repeatSegs = route ? route.segs.filter((s) => !s.novel).map((s) => s.coords) : [];
 
   return (
-    <div className="chart-card">
-      <div className="chart-header">
-        <div>
-          <div className="chart-title">Generate a Run</div>
-          <div className="chart-hint">
-            Routes that favor streets you've never run &nbsp;·&nbsp;
-            <span style={{ color: ORANGE }}>■</span> new ground&nbsp;
-            <span style={{ color: BLUE }}>■</span> already run
-          </div>
-        </div>
-      </div>
-
-      <form
-        className="gen-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          handleGenerate(false);
-        }}
-      >
-        <input
-          className="gen-input gen-input--address"
-          placeholder="Start address (e.g. 411 Main St, Houston TX)"
-          value={address}
-          onChange={(e) => setAddress(e.target.value)}
-        />
-        <div className="gen-miles">
-          <input
-            className="gen-input gen-input--miles"
-            type="number"
-            min="1"
-            max="20"
-            step="0.5"
-            value={miles}
-            onChange={(e) => setMiles(e.target.value)}
-          />
-          <span className="gen-unit">mi</span>
-        </div>
-        <button className="gen-btn" type="submit" disabled={!!status}>
-          Generate
+    <>
+      {!open && (
+        <button
+          className="gen-tab"
+          onClick={() => setOpen(true)}
+          aria-label="Open the run generator"
+        >
+          Generate a Run
         </button>
-      </form>
-
-      {status && (
-        <div className="gen-status">
-          <div className="spinner spinner--sm" />
-          {status}
-        </div>
       )}
-      {error && <div className="gen-error">{error}</div>}
 
-      {result && (
+      {open && (
         <>
-          <div className="gen-stats">
-            <div className="gen-stat">
-              <div className="gen-stat-value">{totalMi.toFixed(1)}</div>
-              <div className="gen-stat-label">total miles</div>
+          <div className="gen-backdrop" onClick={() => setOpen(false)} />
+          <aside className="gen-drawer">
+            <div className="gen-drawer-head">
+              <div>
+                <div className="chart-title">Generate a Run</div>
+                <div className="chart-hint">
+                  Routes that favor streets you've never run &nbsp;·&nbsp;
+                  <span style={{ color: ORANGE }}>■</span> new ground&nbsp;
+                  <span style={{ color: BLUE }}>■</span> already run
+                </div>
+              </div>
+              <button
+                className="gen-close"
+                onClick={() => setOpen(false)}
+                aria-label="Close the run generator"
+              >
+                ×
+              </button>
             </div>
-            <div className="gen-stat">
-              <div className="gen-stat-value">{novelMi.toFixed(1)}</div>
-              <div className="gen-stat-label">new-street miles</div>
-            </div>
-            <div className="gen-stat">
-              <div className="gen-stat-value">{pctNew}%</div>
-              <div className="gen-stat-label">new ground</div>
-            </div>
-          </div>
 
-          <div className="map-wrap">
-            <MapContainer
-              preferCanvas
-              center={[result.loc.lat, result.loc.lng]}
-              zoom={14}
-              scrollWheelZoom={true}
-              style={{ height: "100%", width: "100%", background: "#0d0d0d" }}
-            >
-              <TileLayer
-                url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/">CARTO</a>'
-                subdomains="abcd"
-                maxZoom={19}
-              />
-              {result.past.length > 0 && (
-                <Polyline
-                  positions={result.past}
-                  pathOptions={{ color: "#555", weight: 1.4, opacity: 0.45 }}
+            <div className="gen-drawer-body">
+              <form
+                className="gen-form"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleGenerate(false);
+                }}
+              >
+                <input
+                  className="gen-input gen-input--address"
+                  placeholder="Start address (e.g. 411 Main St, Houston TX)"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
                 />
-              )}
-              {repeatSegs.length > 0 && (
-                <Polyline
-                  positions={repeatSegs}
-                  pathOptions={{ color: BLUE, weight: 4, opacity: 0.9 }}
-                />
-              )}
-              {novelSegs.length > 0 && (
-                <Polyline
-                  positions={novelSegs}
-                  pathOptions={{ color: ORANGE, weight: 4, opacity: 0.95 }}
-                />
-              )}
-              <CircleMarker
-                center={[result.loc.lat, result.loc.lng]}
-                radius={7}
-                pathOptions={{ color: "#fff", weight: 2, fillColor: "#4caf50", fillOpacity: 1 }}
-              />
-              <FitRoute coords={route.coords} />
-            </MapContainer>
-          </div>
+                <div className="gen-miles">
+                  <input
+                    className="gen-input gen-input--miles"
+                    type="number"
+                    min="1"
+                    max="20"
+                    step="0.5"
+                    value={miles}
+                    onChange={(e) => setMiles(e.target.value)}
+                  />
+                  <span className="gen-unit">mi</span>
+                </div>
+                <button className="gen-btn" type="submit" disabled={!!status}>
+                  Generate
+                </button>
+              </form>
 
-          <div className="gen-actions">
-            <button
-              className="gen-btn gen-btn--ghost"
-              onClick={() => handleGenerate(true)}
-              disabled={!!status}
-            >
-              ↻ Shuffle
-            </button>
-            <button className="gen-btn gen-btn--ghost" onClick={downloadGPX}>
-              ⤓ Download GPX
-            </button>
-            <span className="gen-note">
-              {Math.round(result.newShare * 100)}% of streets in this area are
-              still unexplored
-            </span>
-          </div>
+              {status && (
+                <div className="gen-status">
+                  <div className="spinner spinner--sm" />
+                  {status}
+                </div>
+              )}
+              {error && <div className="gen-error">{error}</div>}
+
+              {result && (
+                <>
+                  <div className="gen-stats">
+                    <div className="gen-stat">
+                      <div className="gen-stat-value">{totalMi.toFixed(1)}</div>
+                      <div className="gen-stat-label">total miles</div>
+                    </div>
+                    <div className="gen-stat">
+                      <div className="gen-stat-value">{novelMi.toFixed(1)}</div>
+                      <div className="gen-stat-label">new-street miles</div>
+                    </div>
+                    <div className="gen-stat">
+                      <div className="gen-stat-value">{pctNew}%</div>
+                      <div className="gen-stat-label">new ground</div>
+                    </div>
+                  </div>
+
+                  <div className="map-wrap map-wrap--drawer">
+                    <MapContainer
+                      preferCanvas
+                      center={[result.loc.lat, result.loc.lng]}
+                      zoom={14}
+                      scrollWheelZoom={true}
+                      style={{ height: "100%", width: "100%", background: "#0d0d0d" }}
+                    >
+                      <TileLayer
+                        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                        attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/">CARTO</a>'
+                        subdomains="abcd"
+                        maxZoom={19}
+                      />
+                      {result.past.length > 0 && (
+                        <Polyline
+                          positions={result.past}
+                          pathOptions={{ color: "#555", weight: 1.4, opacity: 0.45 }}
+                        />
+                      )}
+                      {repeatSegs.length > 0 && (
+                        <Polyline
+                          positions={repeatSegs}
+                          pathOptions={{ color: BLUE, weight: 4, opacity: 0.9 }}
+                        />
+                      )}
+                      {novelSegs.length > 0 && (
+                        <Polyline
+                          positions={novelSegs}
+                          pathOptions={{ color: ORANGE, weight: 4, opacity: 0.95 }}
+                        />
+                      )}
+                      <CircleMarker
+                        center={[result.loc.lat, result.loc.lng]}
+                        radius={7}
+                        pathOptions={{ color: "#fff", weight: 2, fillColor: "#4caf50", fillOpacity: 1 }}
+                      />
+                      <FitRoute coords={route.coords} />
+                    </MapContainer>
+                  </div>
+
+                  <div className="gen-actions">
+                    <button
+                      className="gen-btn gen-btn--ghost"
+                      onClick={() => handleGenerate(true)}
+                      disabled={!!status}
+                    >
+                      ↻ Shuffle
+                    </button>
+                    <button className="gen-btn gen-btn--ghost" onClick={downloadGPX}>
+                      ⤓ Download GPX
+                    </button>
+                  </div>
+                  <div className="gen-note">
+                    {Math.round(result.newShare * 100)}% of streets in this area
+                    are still unexplored
+                  </div>
+                </>
+              )}
+            </div>
+          </aside>
         </>
       )}
-    </div>
+    </>
   );
 }
