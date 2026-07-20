@@ -506,9 +506,51 @@
   color: #444;
 }
 
-.gen-input--address {
+.gen-addr {
+  position: relative;
   flex: 1 1 100%;
   min-width: 0;
+}
+
+.gen-input--address {
+  width: 100%;
+}
+
+.gen-sug {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  background: #181818;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  overflow: hidden;
+  z-index: 50;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+.gen-sug-item {
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.gen-sug-item--active {
+  background: #232323;
+}
+
+.gen-sug-item + .gen-sug-item {
+  border-top: 1px solid #1e1e1e;
+}
+
+.gen-sug-main {
+  font-size: 13px;
+  color: #e0e0e0;
+}
+
+.gen-sug-rest {
+  margin-top: 1px;
+  font-size: 11px;
+  color: #666;
 }
 
 .gen-miles {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, Polyline, CircleMarker, useMap } from "react-leaflet";
 import polylineDecode from "@mapbox/polyline";
 import {
@@ -48,6 +48,41 @@ function pastRunsInBounds(runs, bounds) {
 
 const paint = () => new Promise((r) => setTimeout(r, 30));
 
+// Photon (OSM-based, built for search-as-you-type; Nominatim forbids autocomplete)
+async function fetchSuggestions(query, bias, signal) {
+  const biasParam = bias ? `&lat=${bias[0]}&lon=${bias[1]}` : "";
+  const res = await fetch(
+    `https://photon.komoot.io/api/?limit=5&q=${encodeURIComponent(query)}${biasParam}`,
+    { signal }
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  const seen = new Set();
+  const items = [];
+  for (const f of data.features ?? []) {
+    const p = f.properties ?? {};
+    const main =
+      (p.housenumber && p.street ? `${p.housenumber} ${p.street}` : null) ??
+      p.name ??
+      p.street ??
+      "";
+    const rest = [p.city, p.state, p.country]
+      .filter((v) => v && v !== main)
+      .join(", ");
+    const label = [main, rest].filter(Boolean).join(", ");
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    items.push({
+      main: main || rest,
+      rest: main ? rest : "",
+      label,
+      lat: f.geometry.coordinates[1],
+      lng: f.geometry.coordinates[0],
+    });
+  }
+  return items;
+}
+
 export default function GenerateRun({ runs }) {
   const [open, setOpen] = useState(false);
   const [address, setAddress] = useState("");
@@ -56,6 +91,76 @@ export default function GenerateRun({ runs }) {
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
   const cacheRef = useRef(null); // reuse graph/coverage between shuffles
+
+  const [sugs, setSugs] = useState([]);
+  const [sugOpen, setSugOpen] = useState(false);
+  const [sugIdx, setSugIdx] = useState(-1);
+  const pickedRef = useRef(null); // { text, lat, lng } from a chosen suggestion
+  const debounceRef = useRef(null);
+  const abortRef = useRef(null);
+
+  // Bias suggestions toward the most recent run's start point
+  const biasLatLng = useMemo(() => {
+    for (let i = runs.length - 1; i >= 0; i--) {
+      if (runs[i].latlng) return runs[i].latlng;
+    }
+    return null;
+  }, [runs]);
+
+  function closeSugs() {
+    setSugOpen(false);
+    setSugIdx(-1);
+  }
+
+  function onAddressChange(e) {
+    const value = e.target.value;
+    setAddress(value);
+    pickedRef.current = null;
+    clearTimeout(debounceRef.current);
+    if (value.trim().length < 3) {
+      setSugs([]);
+      closeSugs();
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      abortRef.current?.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      try {
+        const items = await fetchSuggestions(value, biasLatLng, ctrl.signal);
+        setSugs(items);
+        setSugOpen(items.length > 0);
+        setSugIdx(-1);
+      } catch {
+        // aborted by newer keystroke, or offline — just skip suggestions
+      }
+    }, 300);
+  }
+
+  function pickSug(s) {
+    setAddress(s.label);
+    pickedRef.current = { text: s.label, lat: s.lat, lng: s.lng };
+    setSugs([]);
+    closeSugs();
+  }
+
+  function onAddressKeyDown(e) {
+    if (!sugOpen || !sugs.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSugIdx((i) => (i + 1) % sugs.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSugIdx((i) => (i <= 0 ? sugs.length - 1 : i - 1));
+    } else if (e.key === "Enter" && sugIdx >= 0) {
+      e.preventDefault();
+      pickSug(sugs[sugIdx]);
+    } else if (e.key === "Escape") {
+      // just dismiss the dropdown — don't let the drawer's handler close it
+      e.stopPropagation();
+      closeSugs();
+    }
+  }
 
   // Lock page scroll and close on Escape while the panel is open
   useEffect(() => {
@@ -89,9 +194,16 @@ export default function GenerateRun({ runs }) {
     try {
       let ctx = cacheRef.current;
       if (!shuffle || ctx?.key !== cacheKey) {
-        setStatus("Finding address…");
-        await paint();
-        const loc = await geocodeAddress(address);
+        // A chosen suggestion already carries coordinates — no geocode needed
+        const picked = pickedRef.current;
+        let loc;
+        if (picked && picked.text === address) {
+          loc = { lat: picked.lat, lng: picked.lng };
+        } else {
+          setStatus("Finding address…");
+          await paint();
+          loc = await geocodeAddress(address);
+        }
 
         setStatus("Loading nearby streets…");
         await paint();
@@ -194,12 +306,35 @@ export default function GenerateRun({ runs }) {
                   handleGenerate(false);
                 }}
               >
-                <input
-                  className="gen-input gen-input--address"
-                  placeholder="Start address (e.g. 411 Main St, Houston TX)"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                />
+                <div className="gen-addr">
+                  <input
+                    className="gen-input gen-input--address"
+                    placeholder="Start address (e.g. 411 Main St, Houston TX)"
+                    value={address}
+                    onChange={onAddressChange}
+                    onKeyDown={onAddressKeyDown}
+                    onBlur={() => setTimeout(closeSugs, 150)}
+                    autoComplete="off"
+                  />
+                  {sugOpen && sugs.length > 0 && (
+                    <div className="gen-sug">
+                      {sugs.map((s, i) => (
+                        <div
+                          key={s.label}
+                          className={`gen-sug-item ${i === sugIdx ? "gen-sug-item--active" : ""}`}
+                          onMouseDown={(e) => {
+                            e.preventDefault(); // keep input focus so blur doesn't race the pick
+                            pickSug(s);
+                          }}
+                          onMouseEnter={() => setSugIdx(i)}
+                        >
+                          <div className="gen-sug-main">{s.main}</div>
+                          {s.rest && <div className="gen-sug-rest">{s.rest}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="gen-miles">
                   <input
                     className="gen-input gen-input--miles"
