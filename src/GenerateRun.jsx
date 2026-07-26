@@ -11,6 +11,14 @@ import {
   generateRoute,
   toGPX,
 } from "./lib/routeGen";
+import {
+  loadFavorites,
+  addFavorite,
+  removeFavorite,
+  findFavorite,
+  recentStarts,
+  reverseLabel,
+} from "./lib/places";
 
 const ORANGE = "#FC4C02";
 const BLUE = "#4FA3FF";
@@ -99,6 +107,11 @@ export default function GenerateRun({ runs }) {
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
 
+  // The start location currently resolved to coordinates — what the star saves
+  const [startPoint, setStartPoint] = useState(null); // { label, lat, lng }
+  const [favorites, setFavorites] = useState(loadFavorites);
+  const [recents, setRecents] = useState({}); // "lat,lng" → reverse-geocoded label
+
   // Bias suggestions toward the most recent run's start point
   const biasLatLng = useMemo(() => {
     for (let i = runs.length - 1; i >= 0; i--) {
@@ -106,6 +119,44 @@ export default function GenerateRun({ runs }) {
     }
     return null;
   }, [runs]);
+
+  // Where the last couple of runs actually started, named once the drawer opens
+  const recentPoints = useMemo(() => recentStarts(runs, 2), [runs]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      for (const p of recentPoints) {
+        const label = await reverseLabel(p.lat, p.lng);
+        if (cancelled) return;
+        setRecents((m) => ({ ...m, [`${p.lat},${p.lng}`]: label }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, recentPoints]);
+
+  const savedPoint = findFavorite(favorites, startPoint);
+
+  function toggleFavorite() {
+    if (!startPoint) return;
+    setFavorites((favs) =>
+      savedPoint
+        ? removeFavorite(favs, savedPoint.id)
+        : addFavorite(favs, startPoint)
+    );
+  }
+
+  // A saved place already has coordinates, so there's nothing to look up —
+  // clicking one goes straight to route building.
+  function startFrom(place) {
+    const point = { label: place.label, lat: place.lat, lng: place.lng };
+    setAddress(place.label);
+    pickedRef.current = { text: place.label, ...point };
+    setSugs([]);
+    closeSugs();
+    handleGenerate(false, point);
+  }
 
   function closeSugs() {
     setSugOpen(false);
@@ -116,6 +167,7 @@ export default function GenerateRun({ runs }) {
     const value = e.target.value;
     setAddress(value);
     pickedRef.current = null;
+    setStartPoint(null); // typing means we're no longer on a resolved place
     clearTimeout(debounceRef.current);
     if (value.trim().length < 3) {
       setSugs([]);
@@ -140,6 +192,7 @@ export default function GenerateRun({ runs }) {
   function pickSug(s) {
     setAddress(s.label);
     pickedRef.current = { text: s.label, lat: s.lat, lng: s.lng };
+    setStartPoint({ label: s.label, lat: s.lat, lng: s.lng });
     setSugs([]);
     closeSugs();
   }
@@ -176,9 +229,12 @@ export default function GenerateRun({ runs }) {
     };
   }, [open]);
 
-  async function handleGenerate(shuffle) {
+  // `from` is an already-resolved start ({ label, lat, lng }) — a favorite or a
+  // recent — which skips both the address field and the geocode step.
+  async function handleGenerate(shuffle, from) {
     const milesNum = Number(miles);
-    if (!address.trim()) {
+    const query = (from?.label ?? address).trim();
+    if (!query) {
       setError("Enter a start address");
       return;
     }
@@ -189,21 +245,22 @@ export default function GenerateRun({ runs }) {
     setError(null);
 
     const targetM = milesNum * METERS_PER_MILE;
-    const cacheKey = `${address.trim().toLowerCase()}|${milesNum}`;
+    const cacheKey = `${query.toLowerCase()}|${milesNum}`;
 
     try {
       let ctx = cacheRef.current;
       if (!shuffle || ctx?.key !== cacheKey) {
-        // A chosen suggestion already carries coordinates — no geocode needed
-        const picked = pickedRef.current;
+        // A saved place or chosen suggestion already carries coordinates
+        const picked = from ?? (pickedRef.current?.text === address ? pickedRef.current : null);
         let loc;
-        if (picked && picked.text === address) {
+        if (picked) {
           loc = { lat: picked.lat, lng: picked.lng };
         } else {
           setStatus("Finding address…");
           await paint();
-          loc = await geocodeAddress(address);
+          loc = await geocodeAddress(query);
         }
+        setStartPoint({ label: query, lat: loc.lat, lng: loc.lng });
 
         setStatus("Loading nearby streets…");
         await paint();
@@ -316,6 +373,22 @@ export default function GenerateRun({ runs }) {
                     onBlur={() => setTimeout(closeSugs, 150)}
                     autoComplete="off"
                   />
+                  <button
+                    type="button"
+                    className={`gen-star ${savedPoint ? "gen-star--on" : ""}`}
+                    onClick={toggleFavorite}
+                    disabled={!startPoint}
+                    title={
+                      !startPoint
+                        ? "Pick a start location to save it"
+                        : savedPoint
+                          ? "Remove from favorites"
+                          : "Save this location"
+                    }
+                    aria-label={savedPoint ? "Remove from favorites" : "Save this location"}
+                  >
+                    {savedPoint ? "★" : "☆"}
+                  </button>
                   {sugOpen && sugs.length > 0 && (
                     <div className="gen-sug">
                       {sugs.map((s, i) => (
@@ -351,6 +424,61 @@ export default function GenerateRun({ runs }) {
                   Generate
                 </button>
               </form>
+
+              {favorites.length > 0 && (
+                <div className="gen-places">
+                  <div className="gen-places-label">Favorites</div>
+                  <div className="gen-chips">
+                    {favorites.map((f) => (
+                      <span key={f.id} className="gen-chip">
+                        <button
+                          type="button"
+                          className="gen-chip-go"
+                          onClick={() => startFrom(f)}
+                          disabled={!!status}
+                          title={`Start from ${f.label}`}
+                        >
+                          <span className="gen-chip-star">★</span>
+                          {f.label}
+                        </button>
+                        <button
+                          type="button"
+                          className="gen-chip-x"
+                          onClick={() => setFavorites((favs) => removeFavorite(favs, f.id))}
+                          aria-label={`Remove ${f.label} from favorites`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {recentPoints.length > 0 && (
+                <div className="gen-places">
+                  <div className="gen-places-label">Recent starts</div>
+                  <div className="gen-chips">
+                    {recentPoints.map((p) => {
+                      const label = recents[`${p.lat},${p.lng}`];
+                      return (
+                        <button
+                          key={`${p.lat},${p.lng}`}
+                          type="button"
+                          className="gen-chip gen-chip-go gen-chip--recent"
+                          onClick={() => label && startFrom({ ...p, label })}
+                          disabled={!label || !!status}
+                          title={label ? `Start from ${label}` : "Naming this place…"}
+                        >
+                          <span className="gen-chip-star">↻</span>
+                          {label ?? "Locating…"}
+                          <span className="gen-chip-date">{p.date}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {status && (
                 <div className="gen-status">
