@@ -19,6 +19,7 @@ import {
   recentStarts,
   reverseLabel,
 } from "./lib/places";
+import { basemap } from "./lib/basemap";
 
 const ORANGE = "#FC4C02";
 const BLUE = "#4FA3FF";
@@ -514,10 +515,10 @@ export default function GenerateRun({ runs }) {
                       style={{ height: "100%", width: "100%", background: "#0d0d0d" }}
                     >
                       <TileLayer
-                        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-                        attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/">CARTO</a>'
-                        subdomains="abcd"
-                        maxZoom={19}
+                        url={basemap.url}
+                        attribution={basemap.attribution}
+                        maxZoom={basemap.maxZoom}
+                        className={basemap.className}
                       />
                       {result.past.length > 0 && (
                         <Polyline

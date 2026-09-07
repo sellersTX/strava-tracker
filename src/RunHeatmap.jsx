@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { MapContainer, TileLayer, useMap } from "react-leaflet";
 import polylineDecode from "@mapbox/polyline";
 import "leaflet/dist/leaflet.css";
+import { basemap } from "./lib/basemap";
 
 // 3 decimal places ≈ 111m — good precision for "same street"
 const snap = (n) => Math.round(n * 1000);
@@ -143,10 +144,10 @@ export default function RunHeatmap({ runs }) {
           style={{ height: "100%", width: "100%", background: "#0d0d0d" }}
         >
           <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/">CARTO</a>'
-            subdomains="abcd"
-            maxZoom={19}
+            url={basemap.url}
+            attribution={basemap.attribution}
+            maxZoom={basemap.maxZoom}
+            className={basemap.className}
           />
           <RouteLayer runs={runs} />
         </MapContainer>

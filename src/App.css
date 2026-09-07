@@ -808,3 +808,9 @@
     transform: none;
   }
 }
+
+/* Keyless OSM fallback basemap: OSM only ships a light style, so invert the
+   tiles to match the dark UI. Routes live in their own pane and are untouched. */
+.basemap-tiles--inverted {
+  filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.9) saturate(0.7);
+}
