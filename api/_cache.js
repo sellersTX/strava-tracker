@@ -63,11 +63,19 @@ function decode(raw) {
 
 // Returns null when Redis is unconfigured or unreachable. Callers treat that as
 // "no cache" and fall back to fetching, so an outage is slow rather than broken.
+//
+// Failures are logged, not swallowed: this cache silently no-opped for months
+// after a Vercel migration renamed its env vars, and nothing said so.
 export async function getCache() {
+  if (!process.env.REDIS_URL) {
+    console.error("[cache] REDIS_URL is not set - running with no cache");
+    return null;
+  }
   let client;
   try {
     client = await getClient();
-  } catch {
+  } catch (e) {
+    console.error("[cache] connect failed:", e.message);
     return null;
   }
   if (!client) return null;
@@ -76,7 +84,8 @@ export async function getCache() {
     async get(key) {
       try {
         return decode(await client.get(key));
-      } catch {
+      } catch (e) {
+        console.error("[cache] get failed:", e.message);
         return null;
       }
     },
@@ -84,15 +93,17 @@ export async function getCache() {
       if (!keys.length) return [];
       try {
         return (await client.mGet(keys)).map(decode);
-      } catch {
+      } catch (e) {
+        console.error("[cache] mget failed:", e.message);
         return keys.map(() => null);
       }
     },
     async set(key, value) {
       try {
         await client.set(key, JSON.stringify(value));
-      } catch {
+      } catch (e) {
         // A failed write just means a future cache miss.
+        console.error("[cache] set failed:", e.message);
       }
     },
   };
