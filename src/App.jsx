@@ -227,7 +227,9 @@ export default function App() {
     return () => { cancelled = true; };
   }, []);
 
-  const chart = chartData ?? [];
+  // Memoised so the fallback [] keeps a stable identity — otherwise every
+  // render hands the useMemos below a new array and they all recompute.
+  const chart = useMemo(() => chartData ?? [], [chartData]);
   const totalMiles = chart.length ? chart[chart.length - 1].cumulative : 0;
   const displayMiles = hovered !== null ? hovered : totalMiles;
   const isHovering = hovered !== null;

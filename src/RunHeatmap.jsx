@@ -22,7 +22,10 @@ function buildFrequencyMap(runs) {
           seen.add(key);
         }
       }
-    } catch {}
+    } catch {
+      // Skip runs whose polyline won't decode; one bad run shouldn't
+      // empty the whole heatmap.
+    }
   }
   return freq;
 }
@@ -90,7 +93,9 @@ function RouteLayer({ runs }) {
           allYellow.push(...yellow);
           allOrange.push(...orange);
           allRed.push(...red);
-        } catch {}
+        } catch {
+          // Same here: drop the unreadable run, draw the rest.
+        }
       }
 
       // One canvas renderer for all layers = maximum performance
