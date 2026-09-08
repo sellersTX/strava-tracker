@@ -1,4 +1,5 @@
 import axios from "axios";
+import { getCache } from "./_cache.js";
 
 export const config = { maxDuration: 60 };
 
@@ -12,16 +13,6 @@ const TIME_BUDGET_MS = 45000;
 // v2: the v1 cache was poisoned with null results from rate-limited lookups,
 // and mixed local-language country names (e.g. "España") before accept-language.
 const CACHE_PREFIX = "geo2:";
-
-async function getKV() {
-  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) return null;
-  try {
-    const { kv } = await import("@vercel/kv");
-    return kv;
-  } catch {
-    return null;
-  }
-}
 
 async function reverseGeocode(lat, lng) {
   try {
@@ -72,12 +63,12 @@ export default async function handler(req, res) {
   if (!Array.isArray(coords) || !coords.length) return res.json({});
 
   const deadline = Date.now() + TIME_BUDGET_MS;
-  const kv = await getKV();
+  const cache = await getCache();
   const result = {};
   let toGeocode = coords;
 
-  if (kv) {
-    const cached = await kv.mget(...coords.map((c) => `${CACHE_PREFIX}${c}`));
+  if (cache) {
+    const cached = await cache.mget(coords.map((c) => `${CACHE_PREFIX}${c}`));
     toGeocode = [];
     coords.forEach((coord, i) => {
       if (cached[i]?.country) result[coord] = cached[i];
@@ -87,11 +78,11 @@ export default async function handler(req, res) {
 
   const fresh = await geocodeSequential(toGeocode, deadline);
 
-  if (kv && Object.keys(fresh).length) {
+  if (cache && Object.keys(fresh).length) {
     // No TTL — locations don't change (and failures are never cached)
     await Promise.all(
       Object.entries(fresh).map(([key, geo]) =>
-        kv.set(`${CACHE_PREFIX}${key}`, geo)
+        cache.set(`${CACHE_PREFIX}${key}`, geo)
       )
     );
   }

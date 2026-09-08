@@ -1,18 +1,8 @@
 import axios from "axios";
+import { getCache } from "./_cache.js";
 
 const RUNS_KEY = "runs:v1";
 const RUNS_TS_KEY = "runs:last_ts";
-
-// KV is optional — if env vars aren't set, we skip caching gracefully
-async function getKV() {
-  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) return null;
-  try {
-    const { kv } = await import("@vercel/kv");
-    return kv;
-  } catch {
-    return null;
-  }
-}
 
 async function getFreshAccessToken() {
   const { data } = await axios.post("https://www.strava.com/oauth/token", {
@@ -78,13 +68,14 @@ function mapActivity(a) {
 
 export default async function handler(req, res) {
   try {
-    const kv = await getKV();
+    // Caching is optional — a null cache just means we fetch every time.
+    const cache = await getCache();
     const token = await getFreshAccessToken();
 
-    if (kv) {
+    if (cache) {
       const [cachedRuns, lastTs] = await Promise.all([
-        kv.get(RUNS_KEY),
-        kv.get(RUNS_TS_KEY),
+        cache.get(RUNS_KEY),
+        cache.get(RUNS_TS_KEY),
       ]);
 
       if (cachedRuns?.length) {
@@ -97,8 +88,10 @@ export default async function handler(req, res) {
           const merged = [...cachedRuns, ...newRuns]
             .sort((a, b) => a.date.localeCompare(b.date));
           const newLastTs = Math.max(...newRuns.map((r) => r.ts));
-          kv.set(RUNS_KEY, merged);
-          kv.set(RUNS_TS_KEY, newLastTs);
+          await Promise.all([
+            cache.set(RUNS_KEY, merged),
+            cache.set(RUNS_TS_KEY, newLastTs),
+          ]);
           return res.json(merged);
         }
 
@@ -113,11 +106,14 @@ export default async function handler(req, res) {
         .sort((a, b) => a.date.localeCompare(b.date));
 
       const newLastTs = runs.length ? Math.max(...runs.map((r) => r.ts)) : 0;
-      await Promise.all([kv.set(RUNS_KEY, runs), kv.set(RUNS_TS_KEY, newLastTs)]);
+      await Promise.all([
+        cache.set(RUNS_KEY, runs),
+        cache.set(RUNS_TS_KEY, newLastTs),
+      ]);
       return res.json(runs);
     }
 
-    // No KV — fetch directly every time
+    // No cache — fetch directly every time
     const all = await fetchAllPages(token);
     const runs = all
       .filter((a) => a.type === "Run" || a.sport_type === "Run")
