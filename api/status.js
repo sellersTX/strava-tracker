@@ -1,13 +1,15 @@
 import { createClient } from "redis";
 
 // Health check. Reports whether Strava credentials are present and whether the
-// Redis cache is actually reachable — the cache failing open is invisible to
-// users, so it needs somewhere to be visible.
+// Redis cache is actually reachable — the cache fails open, so a dead cache is
+// invisible to users and needs somewhere to be visible.
+//
+// Deliberately coarse: this endpoint is public, so it reports an error code
+// rather than the driver's message, which carries the Redis hostname.
 export default async function handler(req, res) {
   const out = {
     connected: !!process.env.STRAVA_REFRESH_TOKEN,
     redisUrlPresent: !!process.env.REDIS_URL,
-    redisUrlScheme: (process.env.REDIS_URL || "").split("://")[0] || null,
     cache: "unknown",
   };
 
@@ -31,9 +33,9 @@ export default async function handler(req, res) {
     await client.set(probe, JSON.stringify({ ok: true }));
     const back = await client.get(probe);
     await client.del(probe);
-    out.cache = back ? "ok" : "write-then-read returned nothing";
+    out.cache = back ? "ok" : "unwritable";
   } catch (e) {
-    out.cache = `failed: ${e.name}: ${e.message}`;
+    out.cache = `unreachable (${e.code ?? e.name})`;
   } finally {
     try {
       if (client?.isOpen) await client.quit();
